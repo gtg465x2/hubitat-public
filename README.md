@@ -1,2 +1,1 @@
-# hubitat-public
-Hubitat Apps and Drivers Code
+# Hubitat Apps and Drivers Code
