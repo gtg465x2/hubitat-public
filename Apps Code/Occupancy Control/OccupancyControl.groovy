@@ -122,7 +122,7 @@ def mainPage() {
         }
         section {
             input "disableSwitch", "capability.switch", title: "Disable Switch"
-            input "logEnable", "bool", title: "Enable debug logging", defaultValue: true
+            input "logEnable", "bool", title: "Enable debug logging", defaultValue: false
         }
     }
 }
