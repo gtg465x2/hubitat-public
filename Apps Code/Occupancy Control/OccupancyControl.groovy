@@ -295,6 +295,10 @@ private void updateSensorSubscriptions(boolean forceUnsubscribe = false) {
 
 void motionActiveHandler(Event evt) {
     if (logEnable) log.debug "Motion active: ${evt.displayName}"
+    if (motionSensors.any { it.id != evt.deviceId && it.currentValue("motion") == "active" }) {
+        if (logEnable) log.debug "Not turning on: motion already active"
+        return
+    }
     motionActive()
 }
 
