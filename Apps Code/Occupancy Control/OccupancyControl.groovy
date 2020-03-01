@@ -1,9 +1,4 @@
 import com.hubitat.hub.domain.Event
-import groovy.transform.Field
-
-@Field private static final String SENSOR_SUBSCRIPTION_STATE_KEY = "sensorSubscriptionState"
-@Field private static final int SENSOR_SUBSCRIPTION_STATE_MOTION = 1
-@Field private static final int SENSOR_SUBSCRIPTION_STATE_VIRTUAL_MOTION = 2
 
 definition(
     name: "Occupancy Control",
@@ -253,7 +248,7 @@ private void enable() {
 
 private void disable() {
     unsubscribe(location)
-    updateSensorSubscriptions(true)
+    updateSensorSubscriptions(false)
     if (logEnable) log.debug "Disabled"
 }
 
@@ -261,36 +256,55 @@ void modeChangeHandler(Event evt) {
     updateSensorSubscriptions()
 }
 
-private void updateSensorSubscriptions(boolean forceUnsubscribe = false) {
-    def currentState = state[SENSOR_SUBSCRIPTION_STATE_KEY]
-    String currentModeName = location.currentMode.name
-    def nextState = forceUnsubscribe ? null :
-        motionSensorModeNames?.contains(currentModeName) ? SENSOR_SUBSCRIPTION_STATE_MOTION :
-            virtualMotionSensorModeNames?.contains(currentModeName) ? SENSOR_SUBSCRIPTION_STATE_VIRTUAL_MOTION : null
-    if (nextState == currentState) return
-    // Subscribe
-    if (nextState == SENSOR_SUBSCRIPTION_STATE_MOTION) {
-        subscribe(motionSensors, "motion.active", motionActiveHandler)
-        subscribe(motionSensors, "motion.inactive", motionInactiveHandler)
-        if (logEnable) log.debug "Subscribed to motion sensor events: ${motionSensors}"
-    } else if (nextState == SENSOR_SUBSCRIPTION_STATE_VIRTUAL_MOTION) {
-        if (virtualMotionSensorActiveLevel && virtualMotionSensor.hasCapability("SwitchLevel")) {
-            subscribe(virtualMotionSensor, "level", virtualMotionLevelHandler)
-        } else {
-            subscribe(virtualMotionSensor, "switch.on", virtualMotionActiveHandler)
+private void updateSensorSubscriptions(boolean enabled = true) {
+    boolean subscribedToMotionSensors = false
+    boolean subscribedToVirtualMotionSensor = false
+    app.getSubscriptions()?.find {
+        if (it.handler == "motionActiveHandler") {
+            subscribedToMotionSensors = true
+        } else if (it.handler == "virtualMotionActiveHandler") {
+            subscribedToVirtualMotionSensor = true
         }
-        subscribe(virtualMotionSensor, "switch.off", virtualMotionInactiveHandler)
-        if (logEnable) log.debug "Subscribed to virtual motion sensor events: ${virtualMotionSensor}"
     }
-    // Unsubscribe
-    if (currentState == SENSOR_SUBSCRIPTION_STATE_MOTION) {
-        unsubscribe(motionSensors)
-        if (logEnable) log.debug "Unsubscribed from motion sensor events: ${motionSensors}"
-    } else if (currentState == SENSOR_SUBSCRIPTION_STATE_VIRTUAL_MOTION) {
-        unsubscribe(virtualMotionSensor)
-        if (logEnable) log.debug "Unsubscribed from virtual motion sensor events: ${virtualMotionSensor}"
+    if (enabled) {
+        String currentModeName = location.currentMode.name
+        if (motionSensorModeNames?.contains(currentModeName)) {
+            if (subscribedToMotionSensors) return else subscribeToMotionSensors()
+        } else if (virtualMotionSensorModeNames?.contains(currentModeName)) {
+            if (subscribedToVirtualMotionSensor) return else subscribeToVirtualMotionSensor()
+        }
     }
-    state[SENSOR_SUBSCRIPTION_STATE_KEY] = nextState
+    if (subscribedToMotionSensors) {
+        unsubscribeFromMotionSensors()
+    } else if (subscribedToVirtualMotionSensor) {
+        unsubscribeFromVirtualMotionSensor()
+    }
+}
+
+private void subscribeToMotionSensors() {
+    subscribe(motionSensors, "motion.active", motionActiveHandler)
+    subscribe(motionSensors, "motion.inactive", motionInactiveHandler)
+    if (logEnable) log.debug "Subscribed to motion sensor events: ${motionSensors}"
+}
+
+private void unsubscribeFromMotionSensors() {
+    unsubscribe(motionSensors)
+    if (logEnable) log.debug "Unsubscribed from motion sensor events: ${motionSensors}"
+}
+
+private void subscribeToVirtualMotionSensor() {
+    if (virtualMotionSensorActiveLevel && virtualMotionSensor.hasCapability("SwitchLevel")) {
+        subscribe(virtualMotionSensor, "level", virtualMotionLevelHandler)
+    } else {
+        subscribe(virtualMotionSensor, "switch.on", virtualMotionActiveHandler)
+    }
+    subscribe(virtualMotionSensor, "switch.off", virtualMotionInactiveHandler)
+    if (logEnable) log.debug "Subscribed to virtual motion sensor events: ${virtualMotionSensor}"
+}
+
+private void unsubscribeFromVirtualMotionSensor() {
+    unsubscribe(virtualMotionSensor)
+    if (logEnable) log.debug "Unsubscribed from virtual motion sensor events: ${virtualMotionSensor}"
 }
 
 void motionActiveHandler(Event evt) {
