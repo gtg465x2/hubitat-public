@@ -262,7 +262,7 @@ private void updateSensorSubscriptions(boolean enabled = true) {
     app.getSubscriptions()?.find {
         if (it.handler == "motionActiveHandler") {
             subscribedToMotionSensors = true
-        } else if (it.handler == "virtualMotionActiveHandler") {
+        } else if (it.handler == "virtualMotionLevelHandler" || it.handler == "virtualMotionActiveHandler") {
             subscribedToVirtualMotionSensor = true
         }
     }
