@@ -72,22 +72,23 @@ def mainPage() {
                 title: "Number of dimmer configurations",
                 submitOnChange: true, required: true,
                 defaultValue: defaultDimmerConfigCount
+            String dimmerDeviceType = "dimmer"
             (0..<(dimmerConfigCount != null ? dimmerConfigCount : defaultDimmerConfigCount)).each { i ->
-                def dimmers = settings["dimmers${i}"]
+                def dimmers = getDevices(dimmerDeviceType, i)
                 def toDimmersPageDescription = dimmers ?
                     {
                         def dimmerNamesText = dimmers.sum { "${it}<br>" }
                         def dimmerLevelsText = selectedModeNames ?
                             "Level per mode:<br>" + selectedModeNames.sum {
-                                def levelText = settings["dimmerLevelForMode${it}${i}"] ?: "Vacancy mode"
-                                def onlyIfDevice = settings["onlyIfDeviceForMode${it}${i}"]
+                                def levelText = getDeviceValueForMode(dimmerDeviceType, i, it) ?: "Vacancy mode"
+                                def onlyIfDevice = getOnlyIfDeviceForMode(dimmerDeviceType, i, it)
                                 def onlyIfText = onlyIfDevice ? " (Only if ${onlyIfDevice} is on)" : ""
                                 "  <b>${it}</b>: ${levelText}${onlyIfText}<br>"
                             }
                             : ""
-                        def dimmersToGroupNames = settings["dimmersToGroupNames${i}"]
+                        def dimmersToGroupNames = getDevicesToGroupNames(dimmerDeviceType, i)
                         def groupDimmerText = dimmersToGroupNames ?
-                            "Control ${dimmersToGroupNames} via group dimmer ${settings["groupDimmer${i}"]}"
+                            "Control ${dimmersToGroupNames} via group dimmer ${getGroupDevice(dimmerDeviceType, i)}"
                             : ""
                         "<font color=\"#1a77c9\">${dimmerNamesText}<br>${dimmerLevelsText}${groupDimmerText}</font>"
                     }()
@@ -95,7 +96,7 @@ def mainPage() {
                 href name: "toDimmersPage", page: "dimmersPage",
                     title: "Dimmers",
                     description: toDimmersPageDescription,
-                    params: [index: i, selectedModeNames: selectedModeNames]
+                    params: [deviceType: dimmerDeviceType, index: i, selectedModeNames: selectedModeNames]
             }
 
             int defaultSwitchConfigCount = 0
@@ -103,22 +104,23 @@ def mainPage() {
                 title: "Number of switch configurations",
                 submitOnChange: true, required: true,
                 defaultValue: defaultSwitchConfigCount
+            String switchDeviceType = "switch"
             (0..<(switchConfigCount != null ? switchConfigCount : defaultSwitchConfigCount)).each { i ->
-                def switches = settings["switches${i}"]
+                def switches = getDevices(switchDeviceType, i)
                 def toSwitchesPageDescription = switches ?
                     {
                         def switchNamesText = switches.sum { "${it}<br>" }
                         def switchActionsText = selectedModeNames ?
                             "Action per mode:<br>" + selectedModeNames.sum {
-                                def onText = settings["switchOnForMode${it}${i}"] ? "On" : "Vacancy mode"
-                                def onlyIfDevice = settings["onlyTurnOnIfDeviceForMode${it}${i}"]
+                                def onText = getDeviceValueForMode(switchDeviceType, i, it) ? "On" : "Vacancy mode"
+                                def onlyIfDevice = getOnlyIfDeviceForMode(switchDeviceType, i, it)
                                 def onlyIfText = onlyIfDevice ? " (Only if ${onlyIfDevice} is on)" : ""
                                 "  <b>${it}</b>: ${onText}${onlyIfText}<br>"
                             }
                             : ""
-                        def switchesToGroupNames = settings["switchesToGroupNames${i}"]
+                        def switchesToGroupNames = getDevicesToGroupNames(switchDeviceType, i)
                         def groupSwitchText = switchesToGroupNames ?
-                            "Control ${switchesToGroupNames} via group switch ${settings["groupSwitch${i}"]}"
+                            "Control ${switchesToGroupNames} via group switch ${getGroupDevice(switchDeviceType, i)}"
                             : ""
                         "<font color=\"#1a77c9\">${switchNamesText}<br>${switchActionsText}${groupSwitchText}</font>"
                     }()
@@ -126,7 +128,7 @@ def mainPage() {
                 href name: "toSwitchesPage", page: "switchesPage",
                     title: "Switches",
                     description: toSwitchesPageDescription,
-                    params: [index: i, selectedModeNames: selectedModeNames]
+                    params: [deviceType: switchDeviceType, index: i, selectedModeNames: selectedModeNames]
             }
         }
         section {
@@ -138,25 +140,26 @@ def mainPage() {
 
 def dimmersPage(Map params) {
     dynamicPage(name: "dimmersPage") {
+        def deviceType = params.deviceType
         def i = params.index
         section {
-            input "dimmers${i}", "capability.switchLevel",
+            input getDevicesSettingsKey(deviceType, i), "capability.switchLevel",
                 title: "Dimmers",
                 multiple: true, submitOnChange: true
-            if (settings["dimmers${i}"]) {
+            if (getDevices(deviceType, i)) {
                 params.selectedModeNames.each {
-                    input "dimmerLevelForMode${it}${i}", "number",
+                    input getDeviceValueForModeSettingsKey(deviceType, i, it), "number",
                         title: "Level for <b>${it}</b>",
                         description: "1..100 or empty for vacancy mode",
                         range: "1..100",
                         submitOnChange: true
-                    if (settings["dimmerLevelForMode${it}${i}"]) {
+                    if (getDeviceValueForMode(deviceType, i, it)) {
                         input "onlyIfDeviceOnForMode${it}${i}", "bool",
                             title: "> Only if another device is on",
                             submitOnChange: true,
                             defaultValue: false
                         if (settings["onlyIfDeviceOnForMode${it}${i}"]) {
-                            input "onlyIfDeviceForMode${it}${i}", "capability.switch",
+                            input getOnlyIfDeviceForModeSettingsKey(deviceType, i, it), "capability.switch",
                                 title: "> Only set level for ${it} if this device is on",
                                 required: true
                         }
@@ -164,16 +167,16 @@ def dimmersPage(Map params) {
                 }
             }
         }
-        def dimmers = settings["dimmers${i}"]
+        def dimmers = getDevices(deviceType, i)
         if (dimmers?.size() > 1) {
             section("Control dimmers via group dimmer") {
-                input "dimmersToGroupNames${i}", "enum",
+                input getDevicesToGroupNamesSettingsKey(deviceType, i), "enum",
                     title: "Dimmers",
                     description: "Click to set dimmers to control via group dimmer",
                     options: dimmers.collect { "${it}" },
                     multiple: true, submitOnChange: true
-                if (settings["dimmersToGroupNames${i}"]) {
-                    input "groupDimmer${i}", "capability.switchLevel",
+                if (getDevicesToGroupNames(deviceType, i)) {
+                    input getGroupDeviceSettingsKey(deviceType, i), "capability.switchLevel",
                         title: "Group Dimmer",
                         required: true
                 }
@@ -184,23 +187,24 @@ def dimmersPage(Map params) {
 
 def switchesPage(Map params) {
     dynamicPage(name: "switchesPage") {
+        def deviceType = params.deviceType
         def i = params.index
         section {
-            input "switches${i}", "capability.switch",
+            input getDevicesSettingsKey(deviceType, i), "capability.switch",
                 title: "Switches",
                 multiple: true, submitOnChange: true
-            if (settings["switches${i}"]) {
+            if (getDevices(deviceType, i)) {
                 params.selectedModeNames.each {
-                    input "switchOnForMode${it}${i}", "bool",
+                    input getDeviceValueForModeSettingsKey(deviceType, i, it), "bool",
                         title: "Turn on during <b>${it}</b>",
                         submitOnChange: true
-                    if (settings["switchOnForMode${it}${i}"]) {
+                    if (getDeviceValueForMode(deviceType, i, it)) {
                         input "onlyTurnOnIfDeviceOnForMode${it}${i}", "bool",
                             title: "> Only if another device is on",
                             submitOnChange: true,
                             defaultValue: false
                         if (settings["onlyTurnOnIfDeviceOnForMode${it}${i}"]) {
-                            input "onlyTurnOnIfDeviceForMode${it}${i}", "capability.switch",
+                            input getOnlyIfDeviceForModeSettingsKey(deviceType, i, it), "capability.switch",
                                 title: "> Only turn on during ${it} if this device is on",
                                 required: true
                         }
@@ -208,16 +212,16 @@ def switchesPage(Map params) {
                 }
             }
         }
-        def switches = settings["switches${i}"]
+        def switches = getDevices(deviceType, i)
         if (switches?.size() > 1) {
             section("Control switches via group switch") {
-                input "switchesToGroupNames${i}", "enum",
+                input getDevicesToGroupNamesSettingsKey(deviceType, i), "enum",
                     title: "Switches",
                     description: "Click to set switches to control via group switch",
                     options: switches.collect { "${it}" },
                     multiple: true, submitOnChange: true
-                if (settings["switchesToGroupNames${i}"]) {
-                    input "groupSwitch${i}", "capability.switch",
+                if (getDevicesToGroupNames(deviceType, i)) {
+                    input getGroupDeviceSettingsKey(deviceType, i), "capability.switch",
                         title: "Group Switch",
                         required: true
                 }
@@ -394,75 +398,78 @@ void virtualMotionInactiveHandler(Event evt) {
 
 private void motionActive() {
     def currentModeName = location.currentMode.name
-    List<Map> devicesToTurnOn = getDevicesToTurnOn(currentModeName, dimmerConfigCount, "dimmers",
-        "dimmerLevelForMode", "onlyIfDeviceForMode",
-        "dimmersToGroupNames", "groupDimmer") +
-        getDevicesToTurnOn(currentModeName, switchConfigCount, "switches",
-            "switchOnForMode", "onlyTurnOnIfDeviceForMode",
-            "switchesToGroupNames", "groupSwitch")
-    switch (devicesToTurnOn.size()) {
+    def dimmerOnCommands = getOnCommands("dimmer", dimmerConfigCount, currentModeName, "setLevel", true)
+    if (dimmerOnCommands == null) {
+        // Dimmer already on
+        return
+    }
+    def switchOnCommands = getOnCommands("switch", switchConfigCount, currentModeName, "on", false)
+    if (switchOnCommands == null) {
+        // Switch already on
+        return
+    }
+    def onCommands = dimmerOnCommands + switchOnCommands
+    switch (onCommands.size()) {
         case 0:
-            return
+            // All devices in vacancy mode or disabled by only if condition
+            break
         case 1:
-            def device = devicesToTurnOn[0]
-            if (device.value instanceof Number) {
-                device.device.setLevel(device.value)
-            } else {
-                device.device.on()
-            }
+            onCommands[0]()
             break
         default:
             // Must use Java Stream method forEach() instead of Groovy collection method each() for parallel stream to work
-            devicesToTurnOn.parallelStream().forEach {
-                if (it.value instanceof Number) {
-                    it.device.setLevel(it.value)
-                } else {
-                    it.device.on()
-                }
-            }
+            onCommands.parallelStream().forEach { it() }
     }
-    if (logEnable) log.debug "Turned on: ${devicesToTurnOn}"
 }
 
-private List<Map> getDevicesToTurnOn(modeName, deviceConfigCount, String devicesKeyPrefix,
-                                     String deviceValueForModeKeyPrefix, String onlyIfDeviceForModeKeyPrefix,
-                                     String devicesToGroupNamesKeyPrefix, String groupDeviceKeyPrefix) {
-    List<Map> devicesToTurnOn = []
+/**
+ * Determines based on settings and device state which devices should be turned on, and returns a list of callable
+ * commands to turn them on, or null if any device is already on and nothing should be turned on.
+ */
+private List<Closure> getOnCommands(String deviceType, Long deviceConfigCount, String modeName,
+                                    String onMethod, boolean onMethodTakesValue) {
+    List<Closure> onCommands = []
     for (i in 0..<deviceConfigCount) {
-        def deviceValue = settings["${deviceValueForModeKeyPrefix}${modeName}${i}"]
+        def deviceValue = getDeviceValueForMode(deviceType, i, modeName)
         if (deviceValue) {
-            def onlyIfDevice = settings["${onlyIfDeviceForModeKeyPrefix}${modeName}${i}"]
+            def onlyIfDevice = getOnlyIfDeviceForMode(deviceType, i, modeName)
             if (onlyIfDevice == null || isOn(onlyIfDevice)) {
-                def devicesToGroupNames = settings["${devicesToGroupNamesKeyPrefix}${i}"]
-                boolean groupDeviceAdded = false
-                for (device in settings["${devicesKeyPrefix}${i}"]) {
+                def devicesToGroupNames = getDevicesToGroupNames(deviceType, i)
+                boolean groupOnCommandAdded = false
+                for (device in getDevices(deviceType, i)) {
                     if (isOn(device)) {
                         if (logEnable) log.debug "Not turning on: already on: ${device}"
-                        return []
-                    } else if (devicesToGroupNames?.contains(device.displayName)) {
-                        if (!groupDeviceAdded) {
-                            devicesToTurnOn.add([device: settings["${groupDeviceKeyPrefix}${i}"], value: deviceValue])
-                            groupDeviceAdded = true
-                        }
-                    } else {
-                        devicesToTurnOn.add([device: device, value: deviceValue])
+                        return null
                     }
+                    if (devicesToGroupNames?.contains(device.displayName)) {
+                        if (groupOnCommandAdded) {
+                            continue
+                        }
+                        device = getGroupDevice(deviceType, i)
+                        groupOnCommandAdded = true
+                    }
+                    onCommands.add({ d, v ->
+                        if (onMethodTakesValue) {
+                            d."${onMethod}"(v)
+                        } else {
+                            d."${onMethod}"()
+                        }
+                        if (logEnable) log.debug "Turned on: ${d}"
+                    }.curry(device, deviceValue))
                 }
             } else {
-                if (logEnable) log.debug "Not turning on ${settings["${devicesKeyPrefix}${i}"]}: device is not on: ${onlyIfDevice}"
+                if (logEnable) log.debug "Not turning on ${getDevices(deviceType, i)}: device is not on: ${onlyIfDevice}"
             }
         } else {
-            if (logEnable) log.debug "Not turning on ${settings["${devicesKeyPrefix}${i}"]}: vacancy mode"
+            if (logEnable) log.debug "Not turning on ${getDevices(deviceType, i)}: vacancy mode"
         }
     }
-    return devicesToTurnOn
+    return onCommands
 }
 
 private void motionInactiveOnAllSensors() {
-    List devicesToTurnOff = getDevicesToTurnOff(dimmerConfigCount, "dimmers",
-        "dimmersToGroupNames", "groupDimmer") +
-        getDevicesToTurnOff(switchConfigCount, "switches",
-            "switchesToGroupNames", "groupSwitch")
+    List devicesToTurnOff = getDevicesToTurnOff("dimmer", dimmerConfigCount) +
+        getDevicesToTurnOff("switch", switchConfigCount)
     switch (devicesToTurnOff.size()) {
         case 0:
             if (logEnable) log.debug "Not turning off: already off"
@@ -477,30 +484,75 @@ private void motionInactiveOnAllSensors() {
     if (logEnable) log.debug "Turned off: ${devicesToTurnOff}"
 }
 
-private List getDevicesToTurnOff(deviceConfigCount, String devicesKeyPrefix, String devicesToGroupNamesKeyPrefix,
-                                 String groupDeviceKeyPrefix) {
+private List getDevicesToTurnOff(String deviceType, Long deviceConfigCount) {
     List devicesToTurnOff = []
     for (i in 0..<deviceConfigCount) {
-        def devicesToGroupNames = settings["${devicesToGroupNamesKeyPrefix}${i}"]
+        def devicesToGroupNames = getDevicesToGroupNames(deviceType, i)
         boolean groupDeviceAdded = false
-        for (device in settings["${devicesKeyPrefix}${i}"]) {
+        for (device in getDevices(deviceType, i)) {
             if (isOn(device)) {
                 if (devicesToGroupNames?.contains(device.displayName)) {
-                    if (!groupDeviceAdded) {
-                        devicesToTurnOff.add(settings["${groupDeviceKeyPrefix}${i}"])
-                        groupDeviceAdded = true
+                    if (groupDeviceAdded) {
+                        continue
                     }
-                } else {
-                    devicesToTurnOff.add(device)
+                    device = getGroupDevice(deviceType, i)
+                    groupDeviceAdded = true
                 }
+                devicesToTurnOff.add(device)
             }
         }
     }
     return devicesToTurnOff
 }
 
-private static boolean isOn(device) { device.currentValue("switch") == "on" }
+private getDevices(deviceType, configIndex) {
+    return settings[getDevicesSettingsKey(deviceType, configIndex)]
+}
 
-private static boolean isAtLevel(device, level) { device.currentValue("level") == level }
+private getDeviceValueForMode(deviceType, configIndex, modeName) {
+    return settings[getDeviceValueForModeSettingsKey(deviceType, configIndex, modeName)]
+}
 
-private static boolean isMotionActive(device) { device.currentValue("motion") == "active" }
+private getOnlyIfDeviceForMode(deviceType, configIndex, modeName) {
+    return settings[getOnlyIfDeviceForModeSettingsKey(deviceType, configIndex, modeName)]
+}
+
+private getDevicesToGroupNames(deviceType, configIndex) {
+    return settings[getDevicesToGroupNamesSettingsKey(deviceType, configIndex)]
+}
+
+private getGroupDevice(deviceType, configIndex) {
+    return settings[getGroupDeviceSettingsKey(deviceType, configIndex)]
+}
+
+private static String getDevicesSettingsKey(deviceType, configIndex) {
+    return "${deviceType}Config${configIndex}Devices"
+}
+
+private static String getDeviceValueForModeSettingsKey(deviceType, configIndex, modeName) {
+    return "${deviceType}Config${configIndex}DeviceValueForMode${modeName}"
+}
+
+private static String getOnlyIfDeviceForModeSettingsKey(deviceType, configIndex, modeName) {
+    return "${deviceType}Config${configIndex}OnlyIfDeviceForMode${modeName}"
+}
+
+private static String getDevicesToGroupNamesSettingsKey(deviceType, configIndex) {
+    return "${deviceType}Config${configIndex}DevicesToGroupNames"
+}
+
+private static String getGroupDeviceSettingsKey(deviceType, configIndex) {
+    return "${deviceType}Config${configIndex}GroupDevice"
+}
+
+private static boolean isOn(device) {
+    return device.currentValue("switch") == "on"
+}
+
+private static boolean isAtLevel(device, level) {
+    return device.currentValue("level") == level
+}
+
+private static boolean isMotionActive(device) {
+    return device.currentValue("motion") == "active"
+}
