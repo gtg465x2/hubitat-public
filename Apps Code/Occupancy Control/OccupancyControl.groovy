@@ -331,9 +331,11 @@ private void subscribeToVirtualMotionSensor() {
     subscribe(virtualMotionSensor, "switch.off", virtualMotionInactiveHandler, [filterEvents: false])
     if (virtualMotionSensorActiveLevel && virtualMotionSensor.hasCapability("SwitchLevel")) {
         subscribe(virtualMotionSensor, "level", virtualMotionLevelHandler, [filterEvents: false])
-        if (isAtLevel(virtualMotionSensor, virtualMotionSensorActiveLevel)) {
-            motionActive()
-        } else if (!isOn(virtualMotionSensor)) {
+        if (isOn(virtualMotionSensor)) {
+            if (isAtLevel(virtualMotionSensor, virtualMotionSensorActiveLevel)) {
+                motionActive()
+            }
+        } else {
             motionInactiveOnAllSensors()
         }
     } else {
