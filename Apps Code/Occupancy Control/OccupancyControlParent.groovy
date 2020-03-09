@@ -2,7 +2,7 @@ definition(
     name: "Occupancy Control Apps",
     namespace: "gtg465x",
     author: "Grayson Carr",
-    description: "Control devices based on occupancy",
+    description: "Control devices based on occupancy / motion",
     category: "My Apps",
     iconUrl: "",
     iconX2Url: "",

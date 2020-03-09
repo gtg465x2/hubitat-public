@@ -5,11 +5,15 @@ import groovy.transform.Field
 @Field private static final String DIMMER = "dimmer"
 @Field private static final String SWITCH = "switch"
 
+@Field private static final Long MAX_CONFIG_COUNT_PER_DEVICE_TYPE = 10L
+
+@Field private static final String REQUIRED_BECAUSE_DEPENDENT = " (required because dependent setting configured)"
+
 definition(
     name: "Occupancy Control",
     namespace: "gtg465x",
     author: "Grayson Carr",
-    description: "Control devices based on occupancy",
+    description: "Control devices based on occupancy / motion",
     category: "My Apps",
     parent: "gtg465x:Occupancy Control Apps",
     iconUrl: "",
@@ -20,6 +24,7 @@ preferences {
     page(name: "mainPage")
     page(name: "dimmersPage")
     page(name: "switchesPage")
+    page(name: "offDelayPage")
 }
 
 def mainPage() {
@@ -32,200 +37,209 @@ def mainPage() {
 
         def modeNames = location.modes.collect { it.name }
         section("Sensors") {
-            def motionSensorModeNameOptions = modeNames - virtualMotionSensorModeNames
-            if (motionSensorModeNameOptions) {
-                input "motionSensors", "capability.motionSensor",
-                    title: "Occupancy Sensors",
-                    multiple: true, submitOnChange: true, required: !virtualMotionSensor
-                if (motionSensors) {
-                    input "motionSensorModeNames", "enum",
-                        title: "> Occupancy sensor modes",
-                        description: "Select modes in which the occupancy sensors should control devices",
-                        options: motionSensorModeNameOptions,
-                        multiple: true, submitOnChange: true, required: true
-                }
+            boolean motionSensorsRequired = !motionSensors && motionSensorModeNames
+            input "motionSensors", "capability.motionSensor",
+                title: "Motion Sensors${motionSensorsRequired ? REQUIRED_BECAUSE_DEPENDENT : ""}",
+                multiple: true,
+                submitOnChange: true,
+                required: motionSensorsRequired
+            if (motionSensors || motionSensorModeNames) {
+                input "motionSensorModeNames", "enum",
+                    title: "> Motion sensor modes",
+                    description: "Select modes in which the motion sensors should control devices",
+                    options: modeNames - virtualMotionSensorModeNames,
+                    multiple: true,
+                    submitOnChange: true,
+                    required: motionSensors
             }
 
-            def virtualMotionSensorModeNameOptions = modeNames - motionSensorModeNames
-            if (virtualMotionSensorModeNameOptions) {
-                input "virtualMotionSensor", "capability.switch",
-                    title: "Virtual Occupancy Sensor",
-                    description: "Click to set a switch to act as a virtual occupancy sensor",
-                    submitOnChange: true
-                if (virtualMotionSensor) {
-                    input "virtualMotionSensorModeNames", "enum",
-                        title: "> Virtual occupancy sensor modes",
-                        description: "Select modes in which the virtual occupancy sensor should control devices",
-                        options: virtualMotionSensorModeNameOptions,
-                        multiple: true, submitOnChange: true, required: true
-                    if (virtualMotionSensor.hasCapability("SwitchLevel")) {
-                        input "virtualMotionSensorActiveLevel", "number",
-                            title: "> Virtual occupancy sensor level to indicate occupancy",
-                            description: "1..100 or empty for any on event to indicate occupancy",
-                            range: "1..100"
-                    }
-                }
+            boolean virtualMotionSensorRequired = !virtualMotionSensor && virtualMotionSensorModeNames
+            input "virtualMotionSensor", "capability.switch",
+                title: "Virtual Motion Sensor${virtualMotionSensorRequired ? REQUIRED_BECAUSE_DEPENDENT : ""}",
+                description: "Click to set a switch to act as a virtual motion sensor",
+                submitOnChange: true,
+                required: virtualMotionSensorRequired
+            if (virtualMotionSensor || virtualMotionSensorModeNames) {
+                input "virtualMotionSensorModeNames", "enum",
+                    title: "> Virtual motion sensor modes",
+                    description: "Select modes in which the virtual motion sensor should control devices",
+                    options: modeNames - motionSensorModeNames,
+                    multiple: true,
+                    submitOnChange: true,
+                    required: virtualMotionSensor
             }
+            if (virtualMotionSensor?.hasCapability("SwitchLevel")) {
+                input "virtualMotionSensorActiveLevel", "number",
+                    title: "> Virtual motion sensor level to indicate motion active",
+                    description: "1..100 or empty for any on event to indicate motion active",
+                    range: "1..100"
+            }
+        }
+
+        def selectedModeNames = modeNames.findAll {
+            motionSensorModeNames?.contains(it) || virtualMotionSensorModeNames?.contains(it)
         }
         section("Devices To Control") {
-            def selectedModeNames = modeNames.findAll {
-                motionSensorModeNames?.contains(it) || virtualMotionSensorModeNames?.contains(it)
-            }
-
-            int defaultDimmerConfigCount = 1
-            input "dimmerConfigCount", "number",
-                title: "Number of dimmer configurations",
-                submitOnChange: true, required: true,
-                defaultValue: defaultDimmerConfigCount
-            (0..<(dimmerConfigCount != null ? dimmerConfigCount : defaultDimmerConfigCount)).each { i ->
-                def dimmers = getDevices(DIMMER, i)
-                def toDimmersPageDescription = dimmers ?
-                    {
-                        def dimmerNamesText = dimmers.sum { "${it}<br>" }
-                        def dimmerLevelsText = selectedModeNames ?
-                            "Level per mode:<br>" + selectedModeNames.sum { modeName ->
-                                def levelText = getDeviceValueForMode(DIMMER, i, modeName) ?: "Vacancy mode"
-                                def onlyIfDevice = getOnlyIfDeviceForMode(DIMMER, i, modeName)
-                                def onlyIfText = onlyIfDevice ? " (Only if ${onlyIfDevice} is on)" : ""
-                                "  <b>${modeName}</b>: ${levelText}${onlyIfText}<br>"
-                            }
-                            : ""
-                        def dimmersToGroupNames = getDevicesToGroupNames(DIMMER, i)
-                        def groupDimmerText = dimmersToGroupNames ?
-                            "Control ${dimmersToGroupNames} via group dimmer ${getGroupDevice(DIMMER, i)}"
-                            : ""
-                        "<font color=\"#1a77c9\">${dimmerNamesText}<br>${dimmerLevelsText}${groupDimmerText}</font>"
-                    }()
-                    : "Click to set"
-                href name: "toDimmersPage", page: "dimmersPage",
-                    title: "Dimmers",
-                    description: toDimmersPageDescription,
-                    params: [index: i, selectedModeNames: selectedModeNames]
-            }
-
-            int defaultSwitchConfigCount = 0
-            input "switchConfigCount", "number",
-                title: "Number of switch configurations",
-                submitOnChange: true, required: true,
-                defaultValue: defaultSwitchConfigCount
-            (0..<(switchConfigCount != null ? switchConfigCount : defaultSwitchConfigCount)).each { i ->
-                def switches = getDevices(SWITCH, i)
-                def toSwitchesPageDescription = switches ?
-                    {
-                        def switchNamesText = switches.sum { "${it}<br>" }
-                        def switchActionsText = selectedModeNames ?
-                            "Action per mode:<br>" + selectedModeNames.sum { modeName ->
-                                def onText = getDeviceValueForMode(SWITCH, i, modeName) ? "On" : "Vacancy mode"
-                                def onlyIfDevice = getOnlyIfDeviceForMode(SWITCH, i, modeName)
-                                def onlyIfText = onlyIfDevice ? " (Only if ${onlyIfDevice} is on)" : ""
-                                "  <b>${modeName}</b>: ${onText}${onlyIfText}<br>"
-                            }
-                            : ""
-                        def switchesToGroupNames = getDevicesToGroupNames(SWITCH, i)
-                        def groupSwitchText = switchesToGroupNames ?
-                            "Control ${switchesToGroupNames} via group switch ${getGroupDevice(SWITCH, i)}"
-                            : ""
-                        "<font color=\"#1a77c9\">${switchNamesText}<br>${switchActionsText}${groupSwitchText}</font>"
-                    }()
-                    : "Click to set"
-                href name: "toSwitchesPage", page: "switchesPage",
-                    title: "Switches",
-                    description: toSwitchesPageDescription,
-                    params: [index: i, selectedModeNames: selectedModeNames]
-            }
+            deviceTypePreferences(DIMMER, "Level", selectedModeNames)
+            deviceTypePreferences(SWITCH, "Action", selectedModeNames, "es")
         }
-        section {
-            input "disableSwitch", "capability.switch", title: "Disable Switch"
+
+        section("Other Settings") {
+            def toOffDelayPageDescription = selectedModeNames.any { getOffDelayForMode(it) } ?
+                {
+                    def offDelaysText = "Off delay for mode:<br>" + selectedModeNames.sum { modeName ->
+                        def offDelay = getOffDelayForMode(modeName)
+                        def offDelayText = offDelay ? "${offDelay} minute${offDelay > 1 ? "s" : ""}" : "None"
+                        "  <b>${modeName}</b>: ${offDelayText}<br>"
+                    }
+                    "<font color=\"#1a77c9\">${offDelaysText}</font>"
+                }()
+                : "Click to set off delay per mode"
+            href name: "toOffDelayPage", page: "offDelayPage",
+                title: "Off Delay",
+                description: toOffDelayPageDescription,
+                params: [selectedModeNames: selectedModeNames]
+            input "disableSwitch", "capability.switch",
+                title: "Disable Switch",
+                description: "Click to set a switch to disable this app when on"
             input "logEnable", "bool", title: "Enable debug logging", defaultValue: false
+        }
+    }
+}
+
+private void deviceTypePreferences(String deviceType, String deviceValueDescription, List<String> selectedModeNames,
+                                   String pluralSuffix = "s") {
+    input "${deviceType}ConfigCount", "number",
+        title: "Number of ${deviceType} configurations",
+        submitOnChange: true,
+        required: true,
+        defaultValue: 0
+    (0..<MAX_CONFIG_COUNT_PER_DEVICE_TYPE).each { i ->
+        boolean configEnabled = i < (Long) settings["${deviceType}ConfigCount"]
+        def devices = getDevices(deviceType, i)
+        if (configEnabled || devices) {
+            def toDevicesPageDescription = devices ?
+                {
+                    def deviceNamesText = devices.sum { "${it}<br>" }
+                    if (configEnabled) {
+                        def deviceValuesText = selectedModeNames ?
+                            "<br>${deviceValueDescription} for mode:<br>" + selectedModeNames.sum { modeName ->
+                                def valueText = getDeviceValueForMode(deviceType, i, modeName) ?: "None (vacancy mode)"
+                                def onlyIfDevice = getOnlyIfDeviceForMode(deviceType, i, modeName)
+                                def onlyIfText = onlyIfDevice ? " (only if ${onlyIfDevice} on)" : ""
+                                "  <b>${modeName}</b>: ${valueText}${onlyIfText}<br>"
+                            }
+                            : ""
+                        def devicesToGroupNames = getDevicesToGroupNames(deviceType, i)
+                        def groupDeviceText = devicesToGroupNames ?
+                            "<br>Control ${devicesToGroupNames} via group ${deviceType} ${getGroupDevice(deviceType, i)}"
+                            : ""
+                        "<font color=\"#1a77c9\">${deviceNamesText}${deviceValuesText}${groupDeviceText}</font>"
+                    } else {
+                        "<font color=\"#ff0000\">${deviceNamesText}</font>"
+                    }
+                }()
+                : "Click to set"
+            href name: "toDevicesPage", page: "${deviceType}${pluralSuffix}Page",
+                title: "${deviceType.capitalize()}${pluralSuffix}${configEnabled ? "" : " (Disabled)"}",
+                description: toDevicesPageDescription,
+                params: [index: i, selectedModeNames: selectedModeNames]
         }
     }
 }
 
 def dimmersPage(Map params) {
     dynamicPage(name: "dimmersPage") {
-        def i = params.index
-        section {
-            input getDevicesSettingsKey(DIMMER, i), "capability.switchLevel",
-                title: "Dimmers",
-                multiple: true, submitOnChange: true
-            if (getDevices(DIMMER, i)) {
-                params.selectedModeNames.each { modeName ->
-                    input getDeviceValueForModeSettingsKey(DIMMER, i, modeName), "number",
-                        title: "Level for <b>${modeName}</b>",
-                        description: "1..100 or empty for vacancy mode",
-                        range: "1..100",
-                        submitOnChange: true
-                    if (getDeviceValueForMode(DIMMER, i, modeName)) {
-                        input "onlyIfDeviceOnForMode${modeName}${i}", "bool",
-                            title: "> Only if another device is on",
-                            submitOnChange: true,
-                            defaultValue: false
-                        if (settings["onlyIfDeviceOnForMode${modeName}${i}"]) {
-                            input getOnlyIfDeviceForModeSettingsKey(DIMMER, i, modeName), "capability.switch",
-                                title: "> Only set level for ${modeName} if this device is on",
-                                required: true
-                        }
-                    }
-                }
-            }
-        }
-        def dimmers = getDevices(DIMMER, i)
-        if (dimmers?.size() > 1) {
-            section("Control dimmers via group dimmer") {
-                input getDevicesToGroupNamesSettingsKey(DIMMER, i), "enum",
-                    title: "Dimmers",
-                    description: "Click to set dimmers to control via group dimmer",
-                    options: dimmers.collect { "${it}" },
-                    multiple: true, submitOnChange: true
-                if (getDevicesToGroupNames(DIMMER, i)) {
-                    input getGroupDeviceSettingsKey(DIMMER, i), "capability.switchLevel",
-                        title: "Group Dimmer",
-                        required: true
-                }
-            }
-        }
+        devicesPagePreferences(DIMMER, params.index, (List) params.selectedModeNames, "capability.switchLevel")
     }
 }
 
 def switchesPage(Map params) {
     dynamicPage(name: "switchesPage") {
-        def i = params.index
-        section {
-            input getDevicesSettingsKey(SWITCH, i), "capability.switch",
-                title: "Switches",
-                multiple: true, submitOnChange: true
-            if (getDevices(SWITCH, i)) {
-                params.selectedModeNames.each { modeName ->
-                    input getDeviceValueForModeSettingsKey(SWITCH, i, modeName), "bool",
-                        title: "Turn on during <b>${modeName}</b>",
+        devicesPagePreferences(SWITCH, params.index, (List) params.selectedModeNames, "capability.switch", "es")
+    }
+}
+
+private void devicesPagePreferences(String deviceType, configIndex, List<String> selectedModeNames,
+                                    String capabilityName, String pluralSuffix = "s") {
+    def devices = getDevices(deviceType, configIndex)
+    def devicesToGroupNames = getDevicesToGroupNames(deviceType, configIndex)
+    def groupDevice = getGroupDevice(deviceType, configIndex)
+    section {
+        boolean anyDeviceValueOrOnlyIfDeviceSet = selectedModeNames.any {
+            getDeviceValueForMode(deviceType, configIndex, it) || getOnlyIfDeviceForMode(deviceType, configIndex, it)
+        }
+        boolean devicesRequired = !devices && (anyDeviceValueOrOnlyIfDeviceSet || devicesToGroupNames || groupDevice)
+        input getDevicesSettingsKey(deviceType, configIndex), capabilityName,
+            title: "${deviceType.capitalize()}${pluralSuffix}${devicesRequired ? REQUIRED_BECAUSE_DEPENDENT : ""}",
+            multiple: true,
+            submitOnChange: true,
+            required: devicesRequired
+        if (devices || anyDeviceValueOrOnlyIfDeviceSet) {
+            selectedModeNames.each { modeName ->
+                def deviceValue = getDeviceValueForMode(deviceType, configIndex, modeName)
+                def onlyIfDevice = getOnlyIfDeviceForMode(deviceType, configIndex, modeName)
+                boolean deviceValueRequired = !deviceValue && onlyIfDevice
+                deviceValueInput(deviceType, configIndex, modeName, deviceValueRequired)
+                if (deviceValue || onlyIfDevice) {
+                    input getOnlyIfDeviceForModeSettingsKey(deviceType, configIndex, modeName), "capability.switch",
+                        title: "> Only if this device is on",
                         submitOnChange: true
-                    if (getDeviceValueForMode(SWITCH, i, modeName)) {
-                        input "onlyTurnOnIfDeviceOnForMode${modeName}${i}", "bool",
-                            title: "> Only if another device is on",
-                            submitOnChange: true,
-                            defaultValue: false
-                        if (settings["onlyTurnOnIfDeviceOnForMode${modeName}${i}"]) {
-                            input getOnlyIfDeviceForModeSettingsKey(SWITCH, i, modeName), "capability.switch",
-                                title: "> Only turn on during ${modeName} if this device is on",
-                                required: true
-                        }
-                    }
                 }
             }
         }
-        def switches = getDevices(SWITCH, i)
-        if (switches?.size() > 1) {
-            section("Control switches via group switch") {
-                input getDevicesToGroupNamesSettingsKey(SWITCH, i), "enum",
-                    title: "Switches",
-                    description: "Click to set switches to control via group switch",
-                    options: switches.collect { "${it}" },
-                    multiple: true, submitOnChange: true
-                if (getDevicesToGroupNames(SWITCH, i)) {
-                    input getGroupDeviceSettingsKey(SWITCH, i), "capability.switch",
-                        title: "Group Switch",
-                        required: true
-                }
+    }
+    if (devices?.size() > 1 || devicesToGroupNames || groupDevice) {
+        section("Control ${deviceType}${pluralSuffix} via group ${deviceType}") {
+            boolean devicesToGroupNamesRequired = !devicesToGroupNames && groupDevice
+            input getDevicesToGroupNamesSettingsKey(deviceType, configIndex), "enum",
+                title: "${deviceType.capitalize()}${pluralSuffix}${devicesToGroupNamesRequired ? REQUIRED_BECAUSE_DEPENDENT : ""}",
+                description: "Click to set ${deviceType}${pluralSuffix} to control via group ${deviceType}",
+                options: devices.collect { "${it}" },
+                multiple: true,
+                submitOnChange: true,
+                required: devicesToGroupNamesRequired
+            if (devicesToGroupNames || groupDevice) {
+                input getGroupDeviceSettingsKey(deviceType, configIndex), capabilityName,
+                    title: "Group ${deviceType.capitalize()}",
+                    submitOnChange: true,
+                    required: devicesToGroupNames
+            }
+        }
+    }
+}
+
+private void deviceValueInput(String deviceType, configIndex, String modeName, boolean required) {
+    switch (deviceType) {
+        case DIMMER:
+            input getDeviceValueForModeSettingsKey(deviceType, configIndex, modeName), "number",
+                title: "Level for <b>${modeName}</b>${required ? REQUIRED_BECAUSE_DEPENDENT : ""}",
+                description: "1..100 or empty for vacancy mode",
+                range: "1..100",
+                submitOnChange: true,
+                required: required
+            break
+        case SWITCH:
+            input getDeviceValueForModeSettingsKey(deviceType, configIndex, modeName), "enum",
+                title: "Action for <b>${modeName}</b>${required ? REQUIRED_BECAUSE_DEPENDENT : ""}",
+                description: "None (vacancy mode)",
+                options: ["On"],
+                submitOnChange: true,
+                required: required
+            break
+        default:
+            log.error "Unable to create device value input for unknown device type ${deviceType}"
+    }
+}
+
+def offDelayPage(Map params) {
+    dynamicPage(name: "offDelayPage") {
+        section {
+            params.selectedModeNames.each { modeName ->
+                input getOffDelayForModeSettingsKey(modeName), "number",
+                    title: "Off delay for <b>${modeName}</b>",
+                    description: "Minutes to delay turning off devices after motion inactive, or empty for no delay",
+                    range: "1..*"
             }
         }
     }
@@ -317,7 +331,7 @@ private void subscribeToMotionSensors() {
     if (isMotionActiveExcludingMotionSensorWithId()) {
         motionActive()
     } else {
-        motionInactiveOnAllSensors()
+        turnOffDevices()
     }
 }
 
@@ -336,14 +350,14 @@ private void subscribeToVirtualMotionSensor() {
                 motionActive()
             }
         } else {
-            motionInactiveOnAllSensors()
+            turnOffDevices()
         }
     } else {
         subscribe(virtualMotionSensor, "switch.on", virtualMotionActiveHandler, [filterEvents: false])
         if (isOn(virtualMotionSensor)) {
             motionActive()
         } else {
-            motionInactiveOnAllSensors()
+            turnOffDevices()
         }
     }
 }
@@ -382,6 +396,7 @@ private boolean isMotionActiveExcludingMotionSensorWithId(Long id = -1L) {
 
 void virtualMotionLevelHandler(Event evt) {
     if (logEnable) log.debug "Virtual motion active with level ${evt.integerValue}: ${evt.displayName}"
+    // TODO: Watch for false activations. May need to call isOn before checking level
     if (evt.integerValue == virtualMotionSensorActiveLevel) {
         motionActive()
     } else {
@@ -399,10 +414,55 @@ void virtualMotionInactiveHandler(Event evt) {
     motionInactiveOnAllSensors()
 }
 
-private void motionActive() {
+private boolean startOffDelayIfConfigured() {
+    def offDelay = getOffDelayForMode(location.currentMode.name)
+    if (offDelay) {
+        runIn((Long) offDelay * 60L, "offDelayHandler")
+        if (logEnable) log.debug "Off delay started: ${offDelay} minute(s)"
+        state.offDelayActive = true
+        return true
+    }
+    return false
+}
+
+private void cancelOffDelay() {
+    unschedule(offDelayHandler)
+    if (logEnable) log.debug "Off delay canceled"
+    state.offDelayActive = false
+}
+
+void offDelayHandler() {
+    if (!isMotionActiveForUnknownSensorType()) {
+        if (logEnable) log.debug "Off delay ended"
+        turnOffDevices()
+        state.offDelayActive = false
+    }
+}
+
+private boolean isMotionActiveForUnknownSensorType() {
     def currentModeName = location.currentMode.name
-    def dimmerOnCommands = getOnCommands(DIMMER, dimmerConfigCount, currentModeName, "setLevel", true)
-    if (dimmerOnCommands == null) {
+    if (motionSensorModeNames?.contains(currentModeName)) {
+        return isMotionActiveExcludingMotionSensorWithId()
+    } else if (virtualMotionSensorModeNames?.contains(currentModeName)) {
+        if (virtualMotionSensorActiveLevel && virtualMotionSensor.hasCapability("SwitchLevel")) {
+            return isOn(virtualMotionSensor) && isAtLevel(virtualMotionSensor, virtualMotionSensorActiveLevel)
+        } else {
+            return isOn(virtualMotionSensor)
+        }
+    }
+    return false
+}
+
+private void motionActive() {
+    if (state.offDelayActive) {
+        if (logEnable) log.debug "Not turning on: off delay active"
+        cancelOffDelay()
+        return
+    }
+
+    def currentModeName = location.currentMode.name
+    def onCommands = getOnCommands(DIMMER, dimmerConfigCount, currentModeName, "setLevel", true)
+    if (onCommands == null) {
         // A dimmer is already on
         return
     }
@@ -411,17 +471,14 @@ private void motionActive() {
         // A switch is already on
         return
     }
-    def onCommands = dimmerOnCommands + switchOnCommands
-    switch (onCommands.size()) {
-        case 0:
-            // All devices in vacancy mode or disabled by only if condition
-            break
-        case 1:
-            onCommands[0]()
-            break
-        default:
-            // Must use Java Stream method forEach() instead of Groovy collection method each() for parallel stream to work
-            onCommands.parallelStream().forEach { it() }
+    onCommands.addAll(switchOnCommands)
+
+    //  If onCommands is empty, all devices are in vacancy mode or are disabled by an only if condition
+    if (onCommands.size() == 1) {
+        onCommands[0]()
+    } else {
+        // Must use Java Stream method forEach() instead of Groovy collection method each() for parallel stream to work
+        onCommands.parallelStream().forEach { it() }
     }
 }
 
@@ -471,20 +528,21 @@ private List<Closure> getOnCommands(String deviceType, Long deviceConfigCount, S
 }
 
 private void motionInactiveOnAllSensors() {
-    List devicesToTurnOff = getDevicesToTurnOff(DIMMER, dimmerConfigCount) +
-        getDevicesToTurnOff(SWITCH, switchConfigCount)
-    switch (devicesToTurnOff.size()) {
-        case 0:
-            if (logEnable) log.debug "Not turning off: already off"
-            return
-        case 1:
-            devicesToTurnOff[0].off()
-            break
-        default:
-            // Must use Java Stream method forEach() instead of Groovy collection method each() for parallel stream to work
-            devicesToTurnOff.parallelStream().forEach { it.off() }
+    if (!startOffDelayIfConfigured()) {
+        turnOffDevices()
     }
-    if (logEnable) log.debug "Turned off: ${devicesToTurnOff}"
+}
+
+private void turnOffDevices() {
+    List devicesToTurnOff = getDevicesToTurnOff(DIMMER, dimmerConfigCount)
+    devicesToTurnOff.addAll(getDevicesToTurnOff(SWITCH, switchConfigCount))
+    if (devicesToTurnOff.size() == 1) {
+        devicesToTurnOff[0].off()
+    } else {
+        // Must use Java Stream method forEach() instead of Groovy collection method each() for parallel stream to work
+        devicesToTurnOff.parallelStream().forEach { it.off() }
+    }
+    if (logEnable) log.debug devicesToTurnOff.isEmpty() ? "Not turning off: already off" : "Turned off: ${devicesToTurnOff}"
 }
 
 private List getDevicesToTurnOff(String deviceType, Long deviceConfigCount) {
@@ -528,6 +586,10 @@ private getGroupDevice(String deviceType, configIndex) {
     return settings[getGroupDeviceSettingsKey(deviceType, configIndex)]
 }
 
+private getOffDelayForMode(modeName) {
+    return settings[getOffDelayForModeSettingsKey(modeName)]
+}
+
 private static String getDevicesSettingsKey(String deviceType, configIndex) {
     return "${deviceType}Config${configIndex}Devices"
 }
@@ -546,6 +608,10 @@ private static String getDevicesToGroupNamesSettingsKey(String deviceType, confi
 
 private static String getGroupDeviceSettingsKey(String deviceType, configIndex) {
     return "${deviceType}Config${configIndex}GroupDevice"
+}
+
+private static String getOffDelayForModeSettingsKey(modeName) {
+    return "OffDelayForMode${modeName}"
 }
 
 private static boolean isOn(device) {
